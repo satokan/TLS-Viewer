@@ -32,9 +32,22 @@ jobs:
 
       - name: Install pqcscan
         run: |
-          go install github.com/pqcscan/pqcscan@latest
+          # Try to build from source to handle different repo structures
+          git clone https://github.com/pqcscan/pqcscan.git
+          cd pqcscan
+          
+          echo "Building pqcscan..."
+          # Try building at root, then in cmd/pqcscan
+          go build -o pqcscan . || go build -o pqcscan ./cmd/pqcscan
+          
+          # Install
           mkdir -p ~/.local/bin
-          cp $(go env GOPATH)/bin/pqcscan ~/.local/bin/
+          cp pqcscan ~/.local/bin/
+          chmod +x ~/.local/bin/pqcscan
+          
+          # Verify
+          ls -l ~/.local/bin/pqcscan
+          ~/.local/bin/pqcscan --version || true
         continue-on-error: true
 
       - name: Prepare Data Directory
