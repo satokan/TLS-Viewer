@@ -5,3 +5,4 @@ geoip2
 apscheduler
 pydantic
 sslyze
+jinja2
