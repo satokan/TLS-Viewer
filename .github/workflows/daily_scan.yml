@@ -25,6 +25,21 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install pqcscan
+        run: |
+          go install github.com/pqcscan/pqcscan@latest
+          mkdir -p ~/.local/bin
+          cp $(go env GOPATH)/bin/pqcscan ~/.local/bin/
+        continue-on-error: true
+
+      - name: Prepare Data Directory
+        run: mkdir -p data
+
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
