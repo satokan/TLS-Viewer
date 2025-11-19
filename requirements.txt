@@ -1,0 +1,7 @@
+sqlalchemy
+alembic
+psycopg2-binary
+geoip2
+apscheduler
+pydantic
+sslyze

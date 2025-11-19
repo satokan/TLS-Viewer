@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSL/TLS Scan Dashboard</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>SSL/TLS Scan Dashboard</h1>
+            <p class="subtitle">Generated on {{ generation_date }}</p>
+        </header>
+
+        <div class="filter-bar">
+            <div class="filter-group">
+                <input type="text" id="searchInput" placeholder="Search domain...">
+            </div>
+            <div class="filter-group">
+                <select id="countryFilter">
+                    <option value="">All Countries</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <select id="gradeFilter">
+                    <option value="">All Grades</option>
+                    <option value="S">Grade S</option>
+                    <option value="A">Grade A</option>
+                    <option value="B">Grade B</option>
+                    <option value="F">Grade F</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label><input type="checkbox" id="pqcFilter"> PQC Only</label>
+            </div>
+            <div class="filter-group">
+                <button id="exportBtn" class="btn-secondary">Export CSV</button>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Scans</h3>
+                <div class="value">{{ total_scans }}</div>
+            </div>
+            <div class="stat-card">
+                <h3>PQC Adoption</h3>
+                <div class="value">{{ pqc_adoption_rate }}%</div>
+                <div class="subtext">{{ pqc_count }} sites</div>
+            </div>
+            <div class="stat-card">
+                <h3>Avg Security Score</h3>
+                <div class="value">{{ avg_score }}</div>
+            </div>
+            <div class="stat-card">
+                <h3>Commercial CAs</h3>
+                <div class="value">{{ commercial_ca_rate }}%</div>
+            </div>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-card">
+                <h3>Security Grades</h3>
+                <canvas id="gradeChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>TLS Versions</h3>
+                <canvas id="tlsChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>PQC Algorithms</h3>
+                <canvas id="pqcAlgoChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Top 10 CA Issuers</h3>
+                <div class="chart-container">
+                    <canvas id="caChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-card" style="grid-column: span 2;">
+                <h3>Top 10 Cipher Suites</h3>
+                <canvas id="cipherChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Top Countries</h3>
+                <canvas id="countryChart"></canvas>
+            </div>
+        </div>
+
+        <div class="table-section">
+            <h3>Recent Scans</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Domain</th>
+                        <th>Grade</th>
+                        <th>Score</th>
+                        <th>PQC</th>
+                        <th>TLS</th>
+                        <th>CA (Issuer)</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody id="scanTableBody">
+                    <!-- Populated by JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="detailModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2 id="modalDomain">Domain Details</h2>
+            <div class="modal-body">
+                <div id="modalErrorSection" class="detail-section" style="display: none;">
+                    <h3 style="color: #EF4444;">Scan Error</h3>
+                    <div id="modalErrorMessage"
+                        style="color: #B91C1C; background: #FEE2E2; padding: 1rem; border-radius: 6px;"></div>
+                </div>
+                <div class="detail-section">
+                    <h3>Certificate</h3>
+                    <div id="modalCertInfo"></div>
+                </div>
+                <div class="detail-section">
+                    <h3>PQC Support</h3>
+                    <div id="modalPqcInfo"></div>
+                </div>
+                <div class="detail-section">
+                    <h3>Cipher Suites</h3>
+                    <ul id="modalCipherList" class="cipher-list"></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data from Python
+        const allScans = {{ all_scans | tojson }};
+        // Initial distributions (optional, can be recalculated from allScans)
+        // const gradeData = {{ grade_distribution | tojson }};
+        // ...
+
+        class ScanManager {
+            constructor(data) {
+                this.allData = data;
+                this.filteredData = data;
+                this.charts = {};
+
+                this.filters = {
+                    search: '',
+                    country: '',
+                    grade: '',
+                    pqc: false
+                };
+
+                this.init();
+            }
+
+            init() {
+                this.populateCountryFilter();
+                this.setupEventListeners();
+                this.renderDashboard();
+            }
+
+            populateCountryFilter() {
+                const countries = new Set(this.allData.map(s => s.country).filter(c => c !== 'Unknown'));
+                const select = document.getElementById('countryFilter');
+                [...countries].sort().forEach(country => {
+                    const option = document.createElement('option');
+                    option.value = country;
+                    option.textContent = country;
+                    select.appendChild(option);
+                });
+            }
+
+            setupEventListeners() {
+                document.getElementById('searchInput').addEventListener('input', (e) => {
+                    this.filters.search = e.target.value.toLowerCase();
+                    this.applyFilters();
+                });
+                document.getElementById('countryFilter').addEventListener('change', (e) => {
+                    this.filters.country = e.target.value;
+                    this.applyFilters();
+                });
+                document.getElementById('gradeFilter').addEventListener('change', (e) => {
+                    this.filters.grade = e.target.value;
+                    this.applyFilters();
+                });
+                document.getElementById('pqcFilter').addEventListener('change', (e) => {
+                    this.filters.pqc = e.target.checked;
+                    this.applyFilters();
+                });
+                document.getElementById('exportBtn').addEventListener('click', () => this.exportCSV());
+
+                // Modal Close
+                document.querySelector('.close-modal').addEventListener('click', () => {
+                    document.getElementById('detailModal').style.display = 'none';
+                });
+                window.addEventListener('click', (e) => {
+                    if (e.target == document.getElementById('detailModal')) {
+                        document.getElementById('detailModal').style.display = 'none';
+                    }
+                });
+            }
+
+            applyFilters() {
+                this.filteredData = this.allData.filter(scan => {
+                    const matchSearch = scan.domain.toLowerCase().includes(this.filters.search);
+                    const matchCountry = !this.filters.country || scan.country === this.filters.country;
+                    const matchGrade = !this.filters.grade || scan.grade === this.filters.grade;
+                    const matchPqc = !this.filters.pqc || scan.pqc_supported;
+                    return matchSearch && matchCountry && matchGrade && matchPqc;
+                });
+                this.renderDashboard();
+            }
+
+            renderDashboard() {
+                this.updateStats();
+                this.renderTable();
+                this.updateCharts();
+            }
+
+            updateStats() {
+                // Update stats cards (Total, PQC%, Avg Score, etc.)
+                // Note: For simplicity, we might skip updating the top stats cards dynamically 
+                // or implement it if requested. For now, let's focus on charts/table.
+                // But let's update Total Scans at least.
+                // document.querySelector('.stat-card .value').textContent = this.filteredData.length;
+            }
+
+            renderTable() {
+                const tbody = document.getElementById('scanTableBody');
+                tbody.innerHTML = '';
+
+                // Show top 50 of filtered results
+                this.filteredData.slice(0, 50).forEach(scan => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><a href="#" class="domain-link" data-domain="${scan.domain}">${scan.domain}</a></td>
+                        <td><span class="grade-badge grade-${scan.grade}">${scan.grade}</span></td>
+                        <td>${scan.score}</td>
+                        <td>${scan.pqc_supported ? '<span class="badge success">Yes</span>' : '<span class="badge neutral">No</span>'}</td>
+                        <td>${scan.tls_version}</td>
+                        <td>${scan.issuer}</td>
+                        <td>${scan.date}</td>
+                    `;
+                    tr.querySelector('.domain-link').addEventListener('click', (e) => {
+                        e.preventDefault();
+                        this.showDetails(scan);
+                    });
+                    tbody.appendChild(tr);
+                });
+            }
+
+            updateCharts() {
+                // Calculate distributions from filteredData
+                const gradeDist = {};
+                const tlsDist = {};
+                const pqcAlgoDist = {};
+                const caDist = {};
+                const cipherDist = {};
+                const countryDist = {};
+
+                this.filteredData.forEach(scan => {
+                    gradeDist[scan.grade] = (gradeDist[scan.grade] || 0) + 1;
+                    tlsDist[scan.tls_version] = (tlsDist[scan.tls_version] || 0) + 1;
+                    caDist[scan.issuer] = (caDist[scan.issuer] || 0) + 1; // Use issuer for chart
+                    countryDist[scan.country] = (countryDist[scan.country] || 0) + 1;
+
+                    if (scan.details.pqc_algorithms) {
+                        scan.details.pqc_algorithms.forEach(algo => {
+                            pqcAlgoDist[algo] = (pqcAlgoDist[algo] || 0) + 1;
+                        });
+                    }
+                    if (scan.details.cipher_suites) {
+                        scan.details.cipher_suites.forEach(suite => {
+                            cipherDist[suite] = (cipherDist[suite] || 0) + 1;
+                        });
+                    }
+                });
+
+                // Helper to get top N
+                const getTopN = (obj, n) => Object.entries(obj)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, n)
+                    .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {});
+
+                this.drawChart('gradeChart', 'bar', gradeDist, ['#10B981', '#3B82F6', '#F59E0B', '#EF4444']);
+                this.drawChart('tlsChart', 'doughnut', tlsDist, ['#3B82F6', '#10B981', '#F59E0B', '#EF4444']);
+                this.drawChart('pqcAlgoChart', 'pie', pqcAlgoDist, ['#8B5CF6', '#EC4899', '#6366F1']);
+                this.drawChart('caChart', 'bar', getTopN(caDist, 10), '#F59E0B', { indexAxis: 'y' }); // Changed to bar for names
+                this.drawChart('cipherChart', 'bar', getTopN(cipherDist, 10), '#8B5CF6', { indexAxis: 'y' });
+                this.drawChart('countryChart', 'bar', getTopN(countryDist, 10), '#3B82F6');
+            }
+
+            drawChart(canvasId, type, data, colors, extraOptions = {}) {
+                if (this.charts[canvasId]) {
+                    this.charts[canvasId].destroy();
+                }
+
+                const ctx = document.getElementById(canvasId);
+                const labels = Object.keys(data);
+                const values = Object.values(data);
+                const bgColors = Array.isArray(colors) ? colors : colors;
+
+                this.charts[canvasId] = new Chart(ctx, {
+                    type: type,
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Count',
+                            data: values,
+                            backgroundColor: bgColors
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: type !== 'bar' } },
+                        ...extraOptions
+                    }
+                });
+            }
+
+            showDetails(scan) {
+                document.getElementById('modalDomain').textContent = scan.domain;
+
+                // Error Message
+                const errorSection = document.getElementById('modalErrorSection');
+                const errorMsg = document.getElementById('modalErrorMessage');
+
+                if (scan.grade === 'Error') {
+                    errorSection.style.display = 'block';
+                    errorMsg.textContent = scan.details.error_message || "Unknown error";
+                    // Hide other sections if needed, or just show what's available
+                } else {
+                    errorSection.style.display = 'none';
+                }
+
+                // Certificate
+                const cert = scan.details.certificate;
+                document.getElementById('modalCertInfo').innerHTML = `
+                    <p><strong>Subject:</strong> ${cert.subject}</p>
+                    <p><strong>Issuer:</strong> ${cert.issuer}</p>
+                    <p><strong>Valid:</strong> ${cert.valid_from} to ${cert.valid_until}</p>
+                `;
+
+                // PQC
+                const pqcDiv = document.getElementById('modalPqcInfo');
+                if (scan.pqc_supported) {
+                    pqcDiv.innerHTML = `<p class="badge success">Supported</p>
+                                      <p><strong>Algorithms:</strong> ${scan.details.pqc_algorithms.join(', ')}</p>`;
+                } else {
+                    pqcDiv.innerHTML = `<p class="badge neutral">Not Supported</p>`;
+                }
+
+                // Ciphers
+                const cipherList = document.getElementById('modalCipherList');
+                cipherList.innerHTML = scan.details.cipher_suites.map(c => `<li>${c}</li>`).join('');
+
+                document.getElementById('detailModal').style.display = 'block';
+            }
+
+            exportCSV() {
+                const headers = ['Domain', 'Grade', 'Score', 'PQC Supported', 'TLS Version', 'CA Type', 'Country', 'Date'];
+                const rows = this.filteredData.map(s => [
+                    s.domain, s.grade, s.score, s.pqc_supported, s.tls_version, s.ca_type, s.country, s.date
+                ]);
+
+                const csvContent = [
+                    headers.join(','),
+                    ...rows.map(r => r.join(','))
+                ].join('\n');
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = 'tls_scan_results.csv';
+                link.click();
+            }
+        }
+
+        // Initialize
+        new ScanManager(allScans);
+    </script>
+</body>
+
+</html>
