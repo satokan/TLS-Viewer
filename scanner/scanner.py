@@ -78,7 +78,7 @@ class TLSScanner:
             return self._create_error_result(domain, scan_start_time, f"Connection failed: {str(e)}")
         except Exception as e:
             logger.exception(f"Unexpected error scanning {domain}")
-            return self._create_error_result(domain, scan_start_time, f"Unexpected error: {str(e)}")
+            return self._create_error_result(domain, scan_start_time, f"Unexpected error ({type(e).__name__}): {str(e)}")
 
     def _create_error_result(self, domain: str, scan_time: datetime, error_msg: str) -> ScanResult:
         return ScanResult(
