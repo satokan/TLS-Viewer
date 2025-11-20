@@ -5,7 +5,16 @@ on:
     # Run daily at 00:00 UTC
     - cron: '0 0 * * *'
   workflow_dispatch:
-    # Allow manual trigger
+    inputs:
+      limit:
+        description: 'Number of domains to scan (default: 50)'
+        required: false
+        default: '50'
+      scan_all:
+        description: 'Scan ALL domains (WARNING: May timeout)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -24,8 +33,6 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
-
-
 
       - name: Install Build Dependencies
         run: |
@@ -93,9 +100,28 @@ jobs:
 
       - name: Run Scan
         run: |
-          # Run the scan script
-          # Note: pqcscan won't be available unless installed, so PQC results will be limited
-          python run_scan.py
+          # Determine arguments
+          LIMIT="${{ inputs.limit }}"
+          
+          # Set default limit based on event type if input is empty
+          if [ -z "$LIMIT" ]; then
+            if [ "${{ github.event_name }}" == "schedule" ]; then
+              LIMIT="1000"
+              echo "Scheduled run detected. Setting limit to 1000."
+            else
+              LIMIT="50"
+              echo "Manual run (no input). Setting default limit to 50."
+            fi
+          fi
+          
+          ARGS="--limit $LIMIT"
+          
+          if [ "${{ inputs.scan_all }}" == "true" ]; then
+            ARGS="--all"
+          fi
+          
+          echo "Running scan with args: $ARGS"
+          python run_scan.py $ARGS
         env:
           PYTHONPATH: .
 
