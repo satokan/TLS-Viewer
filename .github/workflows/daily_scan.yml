@@ -92,6 +92,12 @@ jobs:
       # For now, we start fresh or use what's in the repo (if committed)
       # To persist data across runs, we'd need to commit scanner.db back to the repo
       
+      - name: Run Database Migrations
+        run: |
+          alembic upgrade head
+        env:
+          PYTHONPATH: .
+
       - name: Run Scan
         run: |
           # Run the scan script
