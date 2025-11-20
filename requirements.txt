@@ -6,3 +6,5 @@ apscheduler
 pydantic
 sslyze
 jinja2
+requests
+cryptography
