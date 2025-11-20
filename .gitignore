@@ -31,3 +31,6 @@ output/
 
 # Gemini
 .gemini/
+
+# Specs
+.kiro/
