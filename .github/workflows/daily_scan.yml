@@ -47,20 +47,16 @@ jobs:
 
       - name: Install pqcscan
         run: |
-          # Try to build from source to handle different repo structures
-          git clone https://github.com/pqcscan/pqcscan.git
+          # Clone from Anvil Secure (Rust project)
+          git clone https://github.com/anvilsecure/pqcscan.git
           cd pqcscan
           
-          echo "Building pqcscan..."
-          # Try building at root, then in cmd/pqcscan
-          # Ensure CGO can find liboqs
-          export CGO_CFLAGS="-I/usr/local/include"
-          export CGO_LDFLAGS="-L/usr/local/lib -loqs"
-          go build -o pqcscan . || go build -o pqcscan ./cmd/pqcscan
+          echo "Building pqcscan (Rust)..."
+          cargo build --release
           
           # Install
           mkdir -p ~/.local/bin
-          cp pqcscan ~/.local/bin/
+          cp target/release/pqcscan ~/.local/bin/
           chmod +x ~/.local/bin/pqcscan
           
           # Verify
