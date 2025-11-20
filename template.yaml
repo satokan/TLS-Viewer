@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  TLS Viewer Serverless Architecture
+  
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref ScanResultsTable
+        QUEUE_URL: !Ref ScanQueue
+
+Resources:
+  # --- SQS Queue ---
+  ScanQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 120 # Must be > Lambda timeout
+      MessageRetentionPeriod: 345600 # 4 days
+
+  # --- DynamoDB Table ---
+  ScanResultsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: domain
+          AttributeType: S
+        - AttributeName: scan_date
+          AttributeType: S
+      KeySchema:
+        - AttributeName: domain
+          KeyType: HASH
+        - AttributeName: scan_date
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
+  # --- Lambda: Scanner Worker ---
+  ScannerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ScanQueue.Arn
+            BatchSize: 1 # Process one by one to avoid timeout issues initially
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ScanResultsTable
+    Metadata:
+      DockerTag: python3.11-v1
+      DockerContext: .
+      Dockerfile: Dockerfile
+
+  # --- Lambda: Dispatcher (Nightly Trigger) ---
+  DispatcherFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command: [ "scanner.dispatcher.handler" ]
+      Events:
+        NightlyScan:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 0 * * ? *) # Daily at 00:00 UTC
+            Input: '{"limit": 1000}'
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ScanQueue.QueueName
+    Metadata:
+      DockerTag: python3.11-v1
+      DockerContext: .
+      Dockerfile: Dockerfile
+
+Outputs:
+  ScanQueueUrl:
+    Description: "URL of the SQS Queue"
+    Value: !Ref ScanQueue
+  ScanResultsTableName:
+    Description: "Name of the DynamoDB Table"
+    Value: !Ref ScanResultsTable

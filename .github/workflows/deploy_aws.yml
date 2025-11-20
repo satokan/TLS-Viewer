@@ -1,0 +1,48 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scanner/**'
+      - 'Dockerfile'
+      - 'template.yaml'
+      - 'requirements.txt'
+      - '.github/workflows/deploy_aws.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-1
+
+      - name: Setup SAM
+        uses: aws-actions/setup-sam@v2
+
+      - name: Build and Deploy
+        run: |
+          # Build the application
+          sam build
+
+          # Deploy to AWS
+          # --resolve-image-repos automatically creates ECR repos if needed
+          sam deploy --stack-name tls-viewer-stack \
+            --resolve-s3 \
+            --resolve-image-repos \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset

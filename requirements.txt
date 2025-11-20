@@ -8,3 +8,4 @@ sslyze
 jinja2
 requests
 cryptography
+boto3
