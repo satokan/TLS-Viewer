@@ -30,6 +30,21 @@ jobs:
         with:
           go-version: '1.21'
 
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libssl-dev
+
+      - name: Build and Install liboqs
+        run: |
+          git clone --branch main --single-branch https://github.com/open-quantum-safe/liboqs.git
+          cd liboqs
+          mkdir build && cd build
+          cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
+          ninja
+          sudo ninja install
+          sudo ldconfig
+
       - name: Install pqcscan
         run: |
           # Try to build from source to handle different repo structures
@@ -38,6 +53,9 @@ jobs:
           
           echo "Building pqcscan..."
           # Try building at root, then in cmd/pqcscan
+          # Ensure CGO can find liboqs
+          export CGO_CFLAGS="-I/usr/local/include"
+          export CGO_LDFLAGS="-L/usr/local/lib -loqs"
           go build -o pqcscan . || go build -o pqcscan ./cmd/pqcscan
           
           # Install
@@ -48,10 +66,23 @@ jobs:
           # Verify
           ls -l ~/.local/bin/pqcscan
           ~/.local/bin/pqcscan --version || true
-        continue-on-error: true
+        continue-on-error: false
 
-      - name: Prepare Data Directory
-        run: mkdir -p data
+      - name: Download GeoIP DB
+        env:
+          GEOIP_LICENSE_KEY: ${{ secrets.GEOIP_LICENSE_KEY }}
+        run: |
+          mkdir -p data
+          if [ -n "$GEOIP_LICENSE_KEY" ]; then
+            echo "Downloading GeoIP database..."
+            curl -L "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-City&license_key=${GEOIP_LICENSE_KEY}&suffix=tar.gz" -o GeoLite2-City.tar.gz
+            tar -xzf GeoLite2-City.tar.gz
+            mv GeoLite2-City_*/GeoLite2-City.mmdb data/
+            rm -rf GeoLite2-City*
+            echo "GeoIP database installed."
+          else
+            echo "GEOIP_LICENSE_KEY not set. GeoIP resolution will be disabled."
+          fi
 
       - name: Install dependencies
         run: |
